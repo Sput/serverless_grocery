@@ -195,6 +195,19 @@ test('meals delete buttons are concise and Add New Meal card is last', async ({ 
   expect(headings.at(-1)).toBe('Add new meal');
 });
 
+test('copy meal list puts meal name, last-eaten date, and tags on the clipboard', async ({ page }) => {
+  await setup(page);
+  await page.goto('/#meals');
+  await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText: async text => { window.__copiedMeals = text; } },
+  }));
+  await page.getByRole('button', { name: 'Copy meal list' }).click();
+  await expect(page.getByRole('status')).toContainText('1 meal copied');
+  const copied = await page.evaluate(() => window.__copiedMeals);
+  expect(copied).toBe('"Meal"\t"Last eaten"\t"Tags"\n"Soup"\t"2026-01-01"\t"chicken, summer dish"');
+});
+
 test('Costco groups catalog zones and automatically includes impromptu', async ({ page }) => {
   await setup(page);
   await page.goto('/#costco');

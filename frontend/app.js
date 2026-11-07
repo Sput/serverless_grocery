@@ -135,6 +135,22 @@ function form(parent, onSubmit) {
 }
 function submit(form, label) { form.append(el('button', label, { type: 'submit' })); }
 function job(path, body, method = 'POST') { return { path, method, body }; }
+function mealClipboardText(rows) {
+  const cell = value => `"${String(value ?? '').replaceAll('"', '""')}"`;
+  const table = [['Meal', 'Last eaten', 'Tags'], ...rows.map(row => [
+    row.meal ?? '(unnamed)', row.last_eaten ?? 'Never', (row.tags ?? []).join(', ') || 'None',
+  ])];
+  return table.map(row => row.map(cell).join('\t')).join('\n');
+}
+async function copyMealList(rows) {
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable.');
+    await navigator.clipboard.writeText(mealClipboardText(rows));
+    message(`${rows.length} ${rows.length === 1 ? 'meal' : 'meals'} copied to clipboard.`);
+  } catch {
+    message('Could not copy the meal list. Check browser clipboard permissions.', true);
+  }
+}
 function parseMealTags(value) {
   const tags = value.split(',').map(tag => tag.trim()).filter(Boolean);
   if (tags.length > 5) { message('A meal may have at most 5 tags.', true); return null; }
@@ -285,6 +301,7 @@ async function render() {
       tagsInput = field(addTags, 'Tags (comma-separated; up to 5)', el('input', null, { type: 'text', maxlength: '254', placeholder: 'chicken, summer dish' }));
       add.append(addTags);
       submit(add, 'Add');
+      root.append(button('Copy meal list', () => copyMealList(response.items), 'secondary'));
     } else if (route === 'password') {
       root.append(el('h1', 'Change password'));
       let oldPassword, newPassword;
