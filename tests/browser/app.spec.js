@@ -41,7 +41,7 @@ test('login redirect uses code and PKCE, no secret', async ({ page }) => {
 
 test('all screens render and hostile item names are plain text', async ({ page }) => {
   const errors = await setup(page);
-  for (const [route, heading] of [['home', 'Welcome to Household Groceries'], ['inventory', 'Shopping List'], ['costco', 'Costco List'], ['after-costco', 'After Costco'], ['harris-teeter', 'Harris Teeter List'], ['impromptu', 'Impromptu List'], ['manage', 'Manage Inventory'], ['meals', 'Meals'], ['password', 'Change password']]) {
+  for (const [route, heading] of [['home', 'Welcome to HG'], ['inventory', 'Shopping List'], ['costco', 'Costco List'], ['after-costco', 'After Costco'], ['harris-teeter', 'Harris Teeter List'], ['impromptu', 'Impromptu List'], ['manage', 'Manage Inventory'], ['meals', 'Meals'], ['password', 'Change password']]) {
     await page.goto(`/#${route}`);
     await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible();
   }
@@ -144,6 +144,17 @@ test('meal tags display and save on existing and new meals', async ({ page }) =>
   await page.getByRole('button', { name: 'Add', exact: true }).click();
   const add = await addRequest;
   expect(add.postDataJSON()).toEqual({ meal: 'Veggie tacos', tags: ['summer dish', 'vegetarian'] });
+});
+
+test('mobile header stays compact on one line with HG branding', async ({ page }) => {
+  const viewport = page.viewportSize();
+  test.skip(!viewport || viewport.width > 500, 'Mobile-only header check');
+  await setup(page);
+  await page.goto('/#home');
+  await expect(page.locator('.brand')).toHaveText('HG');
+  const header = await page.locator('header').boundingBox();
+  expect(header.height).toBeLessThan(60);
+  await expect(page.locator('#account button', { hasText: 'Sign out' })).toBeVisible();
 });
 
 test('mobile meal rows show only name, last-eaten date, and delete', async ({ page }) => {

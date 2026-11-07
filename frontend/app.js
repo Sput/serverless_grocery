@@ -170,7 +170,7 @@ async function render() {
   }
   try {
     if (route === 'home') {
-      root.append(el('h1', 'Welcome to Household Groceries'), el('p', 'Manage your shared inventory, prepare shopping lists, and track meals.'));
+      root.append(el('h1', 'Welcome to HG'), el('p', 'Manage your shared inventory, prepare shopping lists, and track meals.'));
       root.append(el('p', 'Start with Shopping selections, then view Costco or Harris Teeter.'));
     } else if (route === 'inventory') {
       root.append(el('h1', 'Shopping List'));
@@ -349,7 +349,7 @@ async function start() {
     try { currentUser = await manager.signinSilent(); } catch { currentUser = null; }
   }
   if (!currentUser) {
-    main.replaceChildren(el('h1', 'Welcome to Household Groceries'), el('p', 'Sign in to access your shared household.'), button('Sign in', () => signIn().catch(error => message(error.message, true))));
+    main.replaceChildren(el('h1', 'Welcome to HG'), el('p', 'Sign in to access your shared household.'), button('Sign in', () => signIn().catch(error => message(error.message, true))));
     return;
   }
   account.append(el('span', currentUser.profile.email || 'Household member'), button('Sign out', signOut, 'secondary'));
