@@ -1,0 +1,17 @@
+{
+  "name": "serverless-grocery",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test tests/frontend-unit.test.mjs",
+    "test:browser": "playwright test"
+  },
+  "dependencies": {
+    "oidc-client-ts": "3.5.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "esbuild": "0.28.2"
+  }
+}

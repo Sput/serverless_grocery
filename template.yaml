@@ -1,0 +1,428 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Shared-household grocery application - private static frontend and Python APIs
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+  RefreshTokenDays:
+    Type: Number
+    Default: 3650
+    MinValue: 1
+    MaxValue: 3650
+Conditions:
+  IsProduction: !Equals [!Ref Environment, prod]
+Globals:
+  Function:
+    Runtime: python3.13
+    CodeUri: backend/
+    Handler: app.lambda_handler
+    AutoPublishAlias: live
+    Timeout: 15
+    MemorySize: 256
+    Architectures: [arm64]
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref GroceryTable
+Resources:
+  GroceryTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      DeletionProtectionEnabled: !If [IsProduction, true, false]
+      SSESpecification:
+        SSEEnabled: true
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+  OriginAccess:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub '${AWS::StackName}-s3'
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+  SecurityHeaders:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub '${AWS::StackName}-headers'
+        SecurityHeadersConfig:
+          ContentTypeOptions: {Override: true}
+          FrameOptions: {FrameOption: DENY, Override: true}
+          ReferrerPolicy: {ReferrerPolicy: no-referrer, Override: true}
+          StrictTransportSecurity:
+            AccessControlMaxAgeSec: 31536000
+            IncludeSubdomains: true
+            Override: true
+          ContentSecurityPolicy:
+            # API ID is deliberately not referenced here: API CORS references the distribution.
+            # Restrict connections to regional AWS API/Cognito hosts; app config selects exact URLs.
+            ContentSecurityPolicy: "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://*.execute-api.us-east-1.amazonaws.com https://cognito-idp.us-east-1.amazonaws.com https://*.auth.us-east-1.amazoncognito.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'"
+            Override: true
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        PriceClass: PriceClass_100
+        Origins:
+          - Id: frontend
+            DomainName: !GetAtt FrontendBucket.RegionalDomainName
+            OriginAccessControlId: !Ref OriginAccess
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+        DefaultCacheBehavior:
+          TargetOriginId: frontend
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          # AWS managed CachingOptimized policy. HTML/config use a short TTL
+          # floor of 1 second; release procedure invalidates them explicitly.
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          ResponseHeadersPolicyId: !Ref SecurityHeaders
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: CloudFrontOnly
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub '${FrontendBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}'
+          - Sid: RequireTLS
+            Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource: [!GetAtt FrontendBucket.Arn, !Sub '${FrontendBucket.Arn}/*']
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub '${AWS::StackName}-users'
+      UsernameAttributes: [email]
+      AutoVerifiedAttributes: [email]
+      UsernameConfiguration:
+        CaseSensitive: false
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 12
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          TemporaryPasswordValidityDays: 7
+      MfaConfiguration: 'OFF'
+      DeletionProtection: !If [IsProduction, ACTIVE, INACTIVE]
+  HouseholdGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: household
+      Description: Invited members of the shared grocery household
+      UserPoolId: !Ref UserPool
+  ResourceServer:
+    Type: AWS::Cognito::UserPoolResourceServer
+    Properties:
+      UserPoolId: !Ref UserPool
+      Identifier: grocery
+      Name: Grocery API
+      Scopes:
+        - ScopeName: read
+          ScopeDescription: Read household grocery data
+        - ScopeName: write
+          ScopeDescription: Update household grocery data
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Sub '${AWS::StackName}-${AWS::AccountId}'
+      UserPoolId: !Ref UserPool
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn: ResourceServer
+    Properties:
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows: [code]
+      AllowedOAuthScopes: [openid, email, aws.cognito.signin.user.admin, grocery/read, grocery/write]
+      SupportedIdentityProviders: [COGNITO]
+      CallbackURLs: [!Sub 'https://${Distribution.DomainName}/']
+      LogoutURLs: [!Sub 'https://${Distribution.DomainName}/']
+      DefaultRedirectURI: !Sub 'https://${Distribution.DomainName}/'
+      EnableTokenRevocation: true
+      PreventUserExistenceErrors: ENABLED
+      AccessTokenValidity: 60
+      IdTokenValidity: 60
+      RefreshTokenValidity: !Ref RefreshTokenDays
+      TokenValidityUnits:
+        AccessToken: minutes
+        IdToken: minutes
+        RefreshToken: days
+      # Rotation disabled deliberately: shared browser tabs can renew concurrently.
+      # Revocation is enabled; max persistent lifetime is configurable above.
+      RefreshTokenRotation:
+        Feature: DISABLED
+  Api:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: $default
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            IdentitySource: $request.header.Authorization
+            JwtConfiguration:
+              issuer: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}'
+              audience: [!Ref UserPoolClient]
+      CorsConfiguration:
+        AllowOrigins: [!Sub 'https://${Distribution.DomainName}']
+        AllowHeaders: [Authorization, Content-Type, Idempotency-Key]
+        AllowMethods: [GET, POST, PATCH, DELETE, OPTIONS]
+        MaxAge: 600
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 20
+        ThrottlingRateLimit: 10
+        DetailedMetricsEnabled: false
+      AccessLogSettings:
+        DestinationArn: !GetAtt ApiLogs.Arn
+        Format: '{"requestId":"$context.requestId","route":"$context.routeKey","status":"$context.status","latency":"$context.responseLatency"}'
+  ApiLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 30
+  InventoryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Environment:
+        Variables:
+          DOMAIN: inventory
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: [dynamodb:GetItem, dynamodb:Query, dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:DeleteItem, dynamodb:ConditionCheckItem, dynamodb:TransactWriteItems]
+              Resource: !GetAtt GroceryTable.Arn
+      Events:
+        ItemsRead:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /items
+            Method: GET
+            Auth: {AuthorizationScopes: [grocery/read]}
+        ItemsCreate:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /items
+            Method: POST
+            Auth: {AuthorizationScopes: [grocery/write]}
+        ItemsUpdate:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /items/{id}
+            Method: PATCH
+            Auth: {AuthorizationScopes: [grocery/write]}
+        LocationsRead:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /locations
+            Method: GET
+            Auth: {AuthorizationScopes: [grocery/read]}
+        LocationsCreate:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /locations
+            Method: POST
+            Auth: {AuthorizationScopes: [grocery/write]}
+  ShoppingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      MemorySize: 1024
+      Environment:
+        Variables:
+          DOMAIN: shopping
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: [dynamodb:GetItem, dynamodb:Query, dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:DeleteItem, dynamodb:ConditionCheckItem, dynamodb:TransactWriteItems]
+              Resource: !GetAtt GroceryTable.Arn
+      Events:
+        ShoppingRead:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /shopping
+            Method: GET
+            Auth: {AuthorizationScopes: [grocery/read]}
+        Selections:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /shopping/selections
+            Method: POST
+            Auth: {AuthorizationScopes: [grocery/write]}
+        AfterCostco:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /shopping/after-costco
+            Method: POST
+            Auth: {AuthorizationScopes: [grocery/write]}
+        Reset:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /shopping/reset
+            Method: POST
+            Auth: {AuthorizationScopes: [grocery/write]}
+        ImpromptuRead:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /impromptu
+            Method: GET
+            Auth: {AuthorizationScopes: [grocery/read]}
+        ImpromptuCreate:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /impromptu
+            Method: POST
+            Auth: {AuthorizationScopes: [grocery/write]}
+        ImpromptuDelete:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /impromptu/{id}
+            Method: DELETE
+            Auth: {AuthorizationScopes: [grocery/write]}
+  MealsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Environment:
+        Variables:
+          DOMAIN: meals
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: [dynamodb:GetItem, dynamodb:Query, dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:DeleteItem, dynamodb:ConditionCheckItem, dynamodb:TransactWriteItems]
+              Resource: !GetAtt GroceryTable.Arn
+      Events:
+        MealsRead:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /meals
+            Method: GET
+            Auth: {AuthorizationScopes: [grocery/read]}
+        MealsCreate:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /meals
+            Method: POST
+            Auth: {AuthorizationScopes: [grocery/write]}
+        MealsUpdate:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /meals/{id}
+            Method: PATCH
+            Auth: {AuthorizationScopes: [grocery/write]}
+        MealsDelete:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /meals/{id}
+            Method: DELETE
+            Auth: {AuthorizationScopes: [grocery/write]}
+  InventoryLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${InventoryFunction}'
+      RetentionInDays: 30
+  ShoppingLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ShoppingFunction}'
+      RetentionInDays: 30
+  MealsLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${MealsFunction}'
+      RetentionInDays: 30
+Outputs:
+  AppUrl:
+    Value: !Sub 'https://${Distribution.DomainName}/'
+  ApiUrl:
+    Value: !Sub 'https://${Api}.execute-api.${AWS::Region}.amazonaws.com'
+  BucketName:
+    Value: !Ref FrontendBucket
+  DistributionId:
+    Value: !Ref Distribution
+  TableName:
+    Value: !Ref GroceryTable
+  UserPoolId:
+    Value: !Ref UserPool
+  ClientId:
+    Value: !Ref UserPoolClient
+  CognitoDomain:
+    Value: !Sub 'https://${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com'
+  Region:
+    Value: !Ref AWS::Region

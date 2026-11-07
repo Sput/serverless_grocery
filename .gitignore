@@ -1,0 +1,29 @@
+# Private migration inputs and generated reports
+/migration/private/
+
+# Credentials and local configuration
+.env
+.env.*
+!.env.example
+.aws/
+
+# Python environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Build artifacts
+.aws-sam/
+node_modules/
+.DS_Store
+
+# Local build/test tools and artifacts
+.tools/
+dist/
+playwright-report/
+test-results/

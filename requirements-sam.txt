@@ -1,0 +1,4 @@
+# Local CLI tools only; not packaged into Lambda.
+aws-sam-cli==1.145.2
+# Login-session profile support requires CRT. Pin SDK to the tested CLI resolution.
+boto3[crt]==1.43.126

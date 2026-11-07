@@ -1,0 +1,44 @@
+openapi: 3.1.0
+info:
+  title: Household Meal Library
+  version: 1.0.0
+  description: DRAFT ONLY — public endpoint is not deployed pending owner approval. Replace the placeholder server URL only after approval and deployment. This read-only action does not save or modify meals.
+servers:
+  - url: https://example.invalid
+paths:
+  /:
+    get:
+      operationId: getMealLibrary
+      summary: Get the current meal library
+      description: Returns meal names, tags, and last-eaten dates. Use last_eaten to avoid recent repeats. No ingredient list or planned calendar is stored here.
+      responses:
+        '200':
+          description: Current meal library
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [meals]
+                properties:
+                  meals:
+                    type: array
+                    items:
+                      type: object
+                      required: [meal, tags, last_eaten]
+                      properties:
+                        meal:
+                          type: string
+                        tags:
+                          type: array
+                          maxItems: 5
+                          items:
+                            type: string
+                        last_eaten:
+                          type: [string, 'null']
+                          format: date
+        '405':
+          description: Only GET is supported
+        '503':
+          description: Meal projection is not ready or is being rebuilt; retry later
+        '500':
+          description: Meal data is temporarily unavailable

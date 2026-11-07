@@ -1,0 +1,6 @@
+# Test tools installed locally with the requested venv interpreter; see docs/development.md.
+# CRT supports the aws-login-based serverless-grocery profile for migration.
+boto3[crt]==1.42.0
+moto[dynamodb]==5.1.17
+pytest==9.0.2
+cfn-lint==1.43.4

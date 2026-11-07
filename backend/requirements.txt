@@ -1,0 +1,2 @@
+# Lambda includes boto3. Bundle the tested SDK with pinned, hashed dependencies.
+-r requirements.lock
