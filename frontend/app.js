@@ -209,7 +209,7 @@ async function render() {
   }
   try {
     if (route === 'home') {
-      root.append(el('h1', 'Welcome to HG'), el('p', 'Manage your shared inventory, prepare shopping lists, and track meals.'));
+      root.append(el('h1', 'Welcome to HG'));
       root.append(el('p', 'Start with Shopping selections, then view Costco or Harris Teeter.'));
       await appendImpromptu(root);
     } else if (route === 'inventory') {
