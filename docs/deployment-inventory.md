@@ -56,7 +56,7 @@ Template: [`template.yaml`](../template.yaml). SAM transforms named functions in
 | [x] | Outputs saved under gitignored `migration/private/` | `dev-stack-outputs.json`; resource IDs are private/local |
 | [x] | Public frontend config generated from outputs and inspected | `app-config.json`; public endpoints only; us-east-1 |
 | [x] | 1,943-row migration applied to empty dev table | fingerprint `ea36ffaf7b1f2da50956121a36c1a2c3f4e868710d147fc0b23356c57b682`; exact query count 1,944 including META at import time |
-| [x] | Hashed assets, CSS, config, and HTML uploaded to private bucket | Latest `app-RBRH23QD.js` published; includes compact one-line mobile HG banner, meal-list copy, and mobile tag layout; older hashed assets retained for rollback |
+| [x] | Hashed assets, CSS, config, and HTML uploaded to private bucket | Latest `app-S3UUJVJF.js` published; includes home-page Impromptu management, compact mobile HG banner, and Meals clipboard export; older hashed assets retained for rollback |
 | [x] | CloudFront invalidation complete | Initial and subsequent UI invalidations all completed. |
 | [x] | Four intended Cognito users created and added to `household` | Cognito reports 4 users in pool/group; invitations sent by email. Addresses/passwords omitted from Git. |
 | [ ] | CloudFront/S3, Cognito, API, CRUD/workflows and authorization acceptance passes | Link to test record/checklist |

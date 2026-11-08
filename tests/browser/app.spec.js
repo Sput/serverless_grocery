@@ -41,7 +41,7 @@ test('login redirect uses code and PKCE, no secret', async ({ page }) => {
 
 test('all screens render and hostile item names are plain text', async ({ page }) => {
   const errors = await setup(page);
-  for (const [route, heading] of [['home', 'Welcome to HG'], ['inventory', 'Shopping List'], ['costco', 'Costco List'], ['after-costco', 'After Costco'], ['harris-teeter', 'Harris Teeter List'], ['impromptu', 'Impromptu List'], ['manage', 'Manage Inventory'], ['meals', 'Meals'], ['password', 'Change password']]) {
+  for (const [route, heading] of [['home', 'Welcome to HG'], ['inventory', 'Shopping List'], ['costco', 'Costco List'], ['after-costco', 'After Costco'], ['harris-teeter', 'Harris Teeter List'], ['manage', 'Manage Inventory'], ['meals', 'Meals'], ['password', 'Change password']]) {
     await page.goto(`/#${route}`);
     await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible();
   }
@@ -50,6 +50,19 @@ test('all screens render and hostile item names are plain text', async ({ page }
   await expect(page.locator('main img')).toHaveCount(0);
   expect(errors).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test('impromptu management is on Home and legacy links redirect there', async ({ page }) => {
+  await setup(page);
+  await page.goto('/#home');
+  await expect(page.getByRole('heading', { name: 'Impromptu', exact: true })).toBeVisible();
+  await expect(page.getByText('Bread', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('New impromptu item')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Clear List', exact: true })).toBeVisible();
+  await expect(page.locator('nav a[href="#impromptu"]')).toHaveCount(0);
+  await page.goto('/#impromptu');
+  await expect(page.getByRole('heading', { name: 'Welcome to HG', exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/#home$/);
 });
 
 test('shopping save sends source IDs with idempotency key', async ({ page }) => {

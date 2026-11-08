@@ -158,6 +158,25 @@ function parseMealTags(value) {
   if (new Set(tags.map(tag => tag.toLowerCase())).size !== tags.length) { message('Meal tags must be unique.', true); return null; }
   return tags;
 }
+async function appendImpromptu(parent) {
+  const response = await api('/impromptu');
+  const panel = section(parent, 'Impromptu');
+  const ul = el('ul', null, { class: 'entries' });
+  for (const row of response.items) {
+    const li = el('li');
+    li.append(el('span', row.name), button(`Delete ${row.name}`, () => save([job(`/impromptu/${row.id}`, { version: row.version }, 'DELETE')]), 'danger'));
+    ul.append(li);
+  }
+  panel.append(ul);
+  if (!response.items.length) panel.append(el('p', 'The list is empty.'));
+  let name;
+  const add = form(panel, () => save([job('/impromptu', { name: name.value })]));
+  name = field(add, 'New impromptu item', input());
+  submit(add, 'Submit');
+  panel.append(button('Clear List', () => {
+    if (confirm('Clear ALL impromptu, Costco, and Harris Teeter entries? Records will be retained as deleted.')) save([job('/shopping/reset', {})]);
+  }, 'danger'));
+}
 function choices(parent, rows, afterCostco = false) {
   const selected = new Map();
   rows.forEach(row => {
@@ -178,7 +197,11 @@ function choices(parent, rows, afterCostco = false) {
 }
 async function render() {
   const version = ++renderVersion;
-  const route = location.hash.slice(1) || 'home';
+  let route = location.hash.slice(1) || 'home';
+  if (route === 'impromptu') {
+    history.replaceState(null, '', `${location.pathname}${location.search}#home`);
+    route = 'home';
+  }
   const root = el('div');
   main.replaceChildren(el('p', 'Loading…'));
   for (const link of navigation.querySelectorAll('a')) {
@@ -188,6 +211,7 @@ async function render() {
     if (route === 'home') {
       root.append(el('h1', 'Welcome to HG'), el('p', 'Manage your shared inventory, prepare shopping lists, and track meals.'));
       root.append(el('p', 'Start with Shopping selections, then view Costco or Harris Teeter.'));
+      await appendImpromptu(root);
     } else if (route === 'inventory') {
       root.append(el('h1', 'Shopping List'));
       const [catalog, impromptu] = await Promise.all([api('/items'), api('/impromptu')]);
@@ -224,21 +248,6 @@ async function render() {
       const selected = choices(root, shopping.costco, true);
       root.append(button('Save Changes', () => save(batches(shopping.costco.filter(row => selected.get(row.id) === 'harris_teeter').map(row => row.id)).map(ids => job('/shopping/after-costco', { ids })))));
       root.append(el('small', 'Copies selected items to Harris Teeter; Costco entries remain unchanged.'));
-    } else if (route === 'impromptu') {
-      root.append(el('h1', 'Impromptu List'));
-      const response = await api('/impromptu');
-      const ul = el('ul', null, { class: 'entries' });
-      for (const row of response.items) {
-        const li = el('li'); li.append(el('span', row.name), button(`Delete ${row.name}`, () => save([job(`/impromptu/${row.id}`, { version: row.version }, 'DELETE')]), 'danger')); ul.append(li);
-      }
-      root.append(ul);
-      if (!response.items.length) root.append(el('p', 'The list is empty.'));
-      let name;
-      const add = form(root, () => save([job('/impromptu', { name: name.value })]));
-      name = field(add, 'New impromptu item', input()); submit(add, 'Submit');
-      root.append(button('Clear List', () => {
-        if (confirm('Clear ALL impromptu, Costco, and Harris Teeter entries? Records will be retained as deleted.')) save([job('/shopping/reset', {})]);
-      }, 'danger'));
     } else if (route === 'manage') {
       root.append(el('h1', 'Manage Inventory'));
       const [catalog, places] = await Promise.all([api('/items'), api('/locations')]);
